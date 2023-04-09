@@ -1,0 +1,30 @@
+{
+    "roboto": {
+        "normal": "roboto_normal_3ef16c3fc239e05137df2565b4634870"
+    },
+    "mont-bold": {
+        "normal": "mont_bold_normal_9d4bcec13e3c181a6059b140f69e8d65"
+    },
+    "mont-regular": {
+        "normal": "mont_regular_normal_d3a1c3c15ae87761eabc7516fa1143fc"
+    },
+    "opensans": {
+        "normal": "opensans_normal_2efebbd87ddc7bcf1123fea04b4bc76b"
+    },
+    "montserrat": {
+        "normal": "montserrat_normal_2efebbd87ddc7bcf1123fea04b4bc76b"
+    },
+    "body": {
+        "normal": "body_normal_7fd430a340d00144a8a6a1e37835692d"
+    },
+    "headings": {
+        "normal": "headings_normal_a21209a3fac6309596f6e019eef76f5f"
+    },
+    "montseratt": {
+        "normal": "montseratt_normal_61b868a35715b1564bdbc5a4074e31ba"
+    },
+    "montseratt bold": {
+        "normal": "\/home\/forge\/dev1.rrdevours.monster\/storage\/fonts\/montseratt_bold_normal_9d4bcec13e3c181a6059b140f69e8d65",
+        "bold": "montseratt_bold_bold_a21209a3fac6309596f6e019eef76f5f"
+    }
+}
