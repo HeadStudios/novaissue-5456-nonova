@@ -1,209 +1,414 @@
 <?php
 
-namespace App\Models; 
-
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
-use Whitecube\NovaFlexibleContent\Value\FlexibleCast;
-use Illuminate\Support\Collection;
-use App\Models\GlobalMerge;
-use AshAllenDesign\ShortURL\Models\ShortURL as ShortURLModel;
-use Michelf\Markdown;
-use WideImage\WideImage;
+namespace App\Nova;
+use Laravel\Nova\Fields\Select;
+use Illuminate\Http\Request;
+use Laravel\Nova\Fields\ID;
+use Laravel\Nova\Http\Requests\NovaRequest;
 use Illuminate\Support\Str;
-use Illuminate\Support\Facades\Storage;
-//use Oneduo\NovaFileManager\Casts\AssetCollection;
+use Laravel\Nova\Fields\Text;
+use Laravel\Nova\Fields\Markdown;
+use Laravel\Nova\Fields\Trix;
+use Laravel\Nova\Fields\Textarea;
+use Laravel\Nova\Fields\HasMany;
+use Laravel\Nova\Fields\Image;
+use Laravel\Nova\Fields\Heading;
+use Laravel\Nova\Fields\Boolean;
+use Laravel\Nova\Fields\BelongsTo;
+use Kostasmatrix\Autofiller\Autofiller;
+use Whitecube\NovaFlexibleContent\Flexible;
+use Illuminate\Support\Facades\Auth;
+use App\Nova\User as UserResource;
+use App\Models\User;
+use Laravel\Nova\Fields\BooleanGroup;
+use Formfeed\DependablePanel\DependablePanel;
+use App\Nova\Metrics\Clicks;
+use Laravel\Nova\Fields\Number;
+use Waynestate\Nova\TextCopy\TextCopy;
+use Oneduo\NovaFileManager\FileManager;
 
 
-class Campaign extends Model
+use App\Nova\Lenses\campaign_list;
+
+
+class Campaign extends Resource
 {
-    use HasFactory;
-    protected $table = 'campaign';
-    public static $group = 'Marketing';
+    /**
+     * The model the resource corresponds to.
+     *
+     * @var string
+     */
+    public static $model = \App\Models\Campaign::class;
 
-    protected $fillable = ['headline', 'subheadline', 'video_props', 'video_thumbnail', 'nova_file'];
+    public static $searchable = true;
 
-    protected $casts = [
-       
-        'video_props' => FlexibleCast::class,
-        'ffmpeg' => FlexibleCast::class,
-        //'nova_file' => AssetCollection::class
 
+    /**
+     * The columns that should be searched.
+     *
+     * @var array
+     */
+
+
+    /**
+     * The single value that should be used to represent the resource when being displayed.
+     *
+     * @var string
+     */
+    public static $group = 'Expert Position';
+    public static $title = 'headline';
+
+    /**
+     * The columns that should be searched.
+     *
+     * @var array
+     */
+    public static $search = [
+        'headline',
     ];
 
-    public function generateThumbnailWithPlayButton()
-{
-    // Generate the folder and filename for the modified thumbnail
-    $folder = 'campaign-thumbnails';
-    $filename = Str::beforeLast($this->video_thumbnail, '.') . '-with-play-button.png';
-    $filePath = $folder . '/' . $filename;
-
-    dump("Filepath is: ".$filePath);
-
-    // Check if the modified thumbnail already exists in the S3 bucket
-    if (!Storage::disk('s3')->exists($filePath)) {
-
-        
-        // Read the video thumbnail from the S3 bucket
-        $thumbnailContents = Storage::disk('s3')->get($this->video_thumbnail);
-
-        // Load the thumbnail image using WideImage
-        $thumbnail = WideImage::loadFromString($thumbnailContents);
-
-        // Load the play button image
-        $playButton = WideImage::load('https://rent-roll-devour-bucket-a1.s3.ap-southeast-2.amazonaws.com/images/play-button-smooth.png');
-
-        // Resize the play button to 50% of the thumbnail size
-        $playButtonWidth = $thumbnail->getWidth() / 2;
-        $playButtonHeight = $thumbnail->getHeight() / 2;
-        $playButton = $playButton->resize($playButtonWidth, $playButtonHeight);
-
-        // Set play button opacity
-        $playButton = $playButton->asTrueColor()->applyFilter(IMG_FILTER_COLORIZE, 0, 0, 0, 127 * 0.5);
-
-        // Calculate the position of the play button
-        $positionX = ($thumbnail->getWidth() - $playButton->getWidth()) / 2;
-        $positionY = ($thumbnail->getHeight() - $playButton->getHeight()) / 2;
-
-        // Merge the thumbnail and play button images
-        $result = $thumbnail->merge($playButton, $positionX, $positionY);
-
-        // Store the resulting image in the S3 bucket
-        $resultAsString = $result->asString('png');
-        Storage::disk('s3')->put($filePath, $resultAsString);
-    }
-
-    // Return the full URL of the stored play button image
-    $full_url = Storage::disk('s3')->url($filePath);
-    dump("For some mysterious reson the s3 url for filepath ".$filePath." is: ".$full_url);
-    return $full_url;
-}
-
-    public function getLiveCopyAttribute()
-{
-    $copy = $this->attributes['copy'];
-    /*preg_match_all('/{!(.*?)}/', $copy, $matches);
-    if (count($matches[1])) {
-        foreach ($matches[1] as $match) {
-            $name = trim($match);
-            $value = GlobalMerge::where('name', $name)->first();
-            if($value)
-                $copy = str_replace("{!{$name}}", $value->value, $copy);
-            else
-                $copy = str_replace("{!{$name}}", '', $copy);
-        }
-    }*/
     
-    $copy = $this->makeToc($copy);
-    $copy = Markdown::defaultTransform($copy);
-    $copy = preg_replace('/{#(.*?)}/', '<a id="$1"></a>', $copy);
-    $copy = $this->remove_p_tags($copy);
-    return $copy;
-}
 
 
-    public function campaigncontacts()
+    /**
+     * Get the fields displayed by the resource.
+     *
+     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
+     * @return array
+     */
+    public function fields(NovaRequest $request)
     {
-        return $this->hasMany(CampaignContact::class);
-    }
+        $user = User::where('id', $this->author?->id)->first();
 
-    public function author()
-    {
-        return $this->belongsTo(User::class);
-    } 
-
-    public function offer()
-    {
-        return $this->belongsTo(Offer::class);
-    } 
-
-
-
-    public function getFullUrlAttribute()
-    {
-        try {
-            $compa_perma = $this->author->company_permalink;
-            $url = route('landing', ['category' => $this->category, 'permalink' => $this->permalink, 'compa_perma' => $compa_perma]);
+        return [
+            //ID::make()->sortable(),
+            BelongsTo::make('Author', 'author', UserResource::class)->nullable()->searchable(),
+            ID::make('id'),
+            BelongsTo::make('Gift Type', 'giftType', GiftType::class)
+                ->displayUsing(function ($giftType) {
+                    return $giftType->permalink;
+                })->nullable(),
+            TextCopy::make('Screenshot', 'screenshot')->canSee(function ($request) {
+                return $request->user()->hasRole('admin');
+            }),
             
-            return $url;
-        } catch (\Exception $e) {
-            return 'NO URL FOUND';
-        }
-        return "Website!";
-    }
-
-    public function makeToc($copy)
-    {
-        preg_match_all('/(^#+\s+)(.*)$/m', $copy, $matches, PREG_SET_ORDER);
-        $table_of_contents = "## Table of Contents\n";
-        foreach ($matches as $match) {
-            $level = strlen($match[1]) - strlen(ltrim($match[1], "#"));
-            $link = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $match[2]));
-            $table_of_contents .= str_repeat("  ", $level - 1) . "* [" . $match[2] . "](#" . $link . ")\n";
-            $copy = preg_replace_callback('/(^'.preg_quote($match[0]).')/m', function($matches) use ($link) {
-                return '{#'.$link.'"}'.PHP_EOL.$matches[1];
-            }, $copy);
-        }
-        return $table_of_contents . "\n" . $copy;
-    }
-    
-    protected function remove_p_tags($html) {
-        // Regular expression pattern to match <p> tags immediately followed by an <a> tag with an id attribute
-        $pattern = '/<p>(?=<a id="(.*?)">)(.*?)(<\/a>)<\/p>/';
-        // Replacement string with the <a> tag and its contents
-        $replacement = '<a id="$1">$3';
-        // Use preg_replace to replace all matches of the pattern with the replacement string
-        return preg_replace($pattern, $replacement, $html);
-    }
-    
-
-
-
-
-
-    public function getShortUrlAttribute()
-    {
-        
-        $destination_url = $this->full_url;
-        $shortURLKey = $this->shortlink_path;
-        
-        try {
-            $shortURL = ShortURLModel::where('url_key', $shortURLKey)->firstOrFail();
-            return $shortURL->default_short_url;
-        } catch (\Exception $e) {
-            $builder = new \AshAllenDesign\ShortURL\Classes\Builder();
-            $shortURLObject = $builder->destinationUrl($destination_url)->urlKey($shortURLKey)->make();
-            $shortURL = $shortURLObject->default_short_url;
+            BelongsTo::make('Offer')->nullable(),
+            TextCopy::make('Link', function() {
+                if (!isset($this->author->company_permalink)) {
+                    return '';
+                }
+                return env('APP_URL').'/vblog/'.$this->author->company_permalink.'/'.$this->category.'/'.$this->permalink;
+            })->copyValue(function ($value) {
+                $user = User::where('id', $this->author?->id)->first();
+                if (!isset($this->author->company_permalink)) {
+                    return '';
+                }
+                return env('APP_URL').'/vblog/'.$this->author?->company_permalink.'/'.$this->category.'/'.$this->permalink;
+            }),
+            Select::make('Template', 'template_view')->options([
+                'campaign-single' => 'campaign-single',
+                'campaign-single-fresh' => 'campaign-single-fresh',
+                'single.tursa-single' => 'single.tursa-single',
+                'single.vsl-pm' => 'single.vsl-pm (Property Management Landing)',
+                'single.vsl-rrds' => 'single.vsl-rrds (Rent Roll Devour Landing)',
+            ])->displayUsingLabels()->hideFromIndex()->canSee(function ($request) {
+                return $request->user()->hasRole('admin');
+            }),
             
-            return $shortURL;
+            Select::make('Category', 'category')->options([
+                'property-management' => 'Property Management - property-management',
+                'rrds' => 'Rent Roll Devour System - rrds',
+                'discord' => 'Discord Peeps - discord',
+                'tursa' => 'Tursa Peeps - tursa'
+            ])->displayUsingLabels()->hideFromIndex()->canSee(function ($request) {
+                return $request->user()->hasRole('admin');
+            }),
+            Text::make('Permalink', 'permalink'),
+            Image::make('MMS Image', 'mms_image')->disk('s3')->hideFromIndex()->canSee(function ($request) {
+                return $request->user()->hasRole('admin');
+            }),
+            Image::make('Video Thumbnail', 'video_thumbnail')->disk('s3')->hideFromIndex()->canSee(function ($request) {
+                return $request->user()->hasRole('admin');
+            }),
+            Image::make('Partner', 'partner')->disk('s3')->hideFromIndex(),
+            FileManager::make(__('Nova File'), 'nova_file')->canSee(function ($request) {
+                return $request->user()->hasRole('admin');
+            }),
+            BooleanGroup::make('Landing Page Sections', 'display')->options(function () {
+                $options = [        'landing' => 'Landing Page Fields',   'misc' => 'Video Fields',     'email' => 'Email Campaign Fields',        'mms' => 'MMS Campaign'   ];
+                
+                // Only display the first two options if the user is not an admin
+                if (!auth()->user()->hasRole('admin')) {
+                    $options = array_slice($options, 0, 2, true);
+                }
+            
+                return $options;
+            })->onlyOnForms()->fillUsing(fn () => null),
+
+            
+            
+            
+            Text::make('Shortlink', function () {
+                return '<a target="_blank" class="link-default" href="'.env('APP_URL').'/offer/'.$this->shortlink_path.'">'.env('APP_URL').'/offer/'.$this->shortlink_path.'</a>'; 
+                })->asHtml()->hideFromIndex()->canSee(function ($request) {
+                    return $request->user()->hasRole('admin');
+                }),
+
+                Trix::make('Notes')->canSee(function ($request) {
+                    return $request->user()->hasRole('admin');
+                }),
+
+                Flexible::make('Video Props')
+            ->addLayout('Video Prop', 'prop_single', [
+                Text::make('Title'),
+                Text::make('Name'),
+                TextArea::make('Property')
+            ]),
+
+                
+                
+
+            DependablePanel::make('Landing Page Fields', [
+                
+                
+                Text::make('Headline', 'headline'),
+                Text::make('Subheadline', 'subheadline'),
+                
+                Text::make('Tik Tok URL', 'tiktok_url')->hideFromIndex(),
+                Heading::make('Add the merge <b>{!offer}</b> to add offer to be modified later')->asHtml(),
+                Markdown::make('Copy', 'copy')->hideFromIndex()->withFiles('s3'),
+                Boolean::make('Template')->sortable()->canSee(function ($request) {
+                    return $request->user()->hasRole('admin');
+                }),
+                
+                ])->separatePanel(true)->dependsOn(['display'], function ($field, $request, $formData) {
+                    $this->showWhenDisplayIs('landing', $field, $formData);
+                }),
+
+               
+            
+            DependablePanel::make('Email Fields', [
+            Heading::make('Please add {{first_name}} into the subject and email field for first name and {{link}} for the link')->asHtml(),
+            Text::make('Email Subject'),
+            Markdown::make('Email Body', 'email_body')->hideFromIndex(),
+            ])->separatePanel(true)->dependsOn(['display'], function ($field, $request, $formData) {
+                $this->showWhenDisplayIs('email', $field, $formData);
+            })->canSee(function ($request) {
+                return $request->user()->hasRole('admin');
+            }),
+
+            DependablePanel::make('MMS', [
+
+                Text::make('Shortlink Path', 'shortlink_path'),
+                
+            
+                Textarea::make('MMS Message', 'mms_msg'),
+                ])->separatePanel(true)->dependsOn(['display'], function ($field, $request, $formData) {
+                    $this->showWhenDisplayIs('mms', $field, $formData);
+                })->canSee(function ($request) {
+                    return $request->user()->hasRole('admin');
+                }),
+
+
+            DependablePanel::make('Video Fields', [
+               
+                  
+
+                
+
+            
+                
+                ])->separatePanel(true)->dependsOn(['display'], function ($field, $request, $formData) {
+                    $this->showWhenDisplayIs('misc', $field, $formData);
+                }),
+
+                Textarea::make('Video Script', 'video_script')->hideFromIndex()->canSee(function ($request) {
+                    return $request->user()->hasRole('admin');
+                }),
+            Text::make('Movio Video ID')->canSee(function ($request) {
+                return $request->user()->hasRole('admin');
+            }),
+
+                Text::make('CTA Text', 'cta_text')->canSee(function ($request) {
+                    return $request->user()->hasRole('admin');
+                }),
+                Text::make('CTA Link', 'cta_link')->canSee(function ($request) {
+                    return $request->user()->hasRole('admin');
+                }),
+                // GO!
+                /*
+
+                TextCopy::make('Video Thumbnail' 'video_thumbnail'),, function() { return env('APP_URL').'/vblog/'.$this->author->company_permalink.'/'.$this->category.'/'.$this->permalink; })->copyValue(function ($value) {
+                $user = User::where('id', $this->author?->id)->first();
+                return env('APP_URL').'/vblog/'.$this->author?->company_permalink.'/'.$this->category.'/'.$this->permalink;
+                })->hideFromindex(),
+
+                */
+                //TextCopy::make('Video Thumbnail', 'video_thumbnail'),
+                
+                Textarea::make('Excerpt', 'excerpt')->canSee(function ($request) {
+                    return $request->user()->hasRole('admin');
+                }),
+            
+            
+            //BelongsTo::make('Author', 'author', 'App\Nova\User')->searchable()->hideWhenCreating()->hideWhenUpdating(),
+
+            //Autofiller::make('Templater', 'template_null')->hideFromIndex()->max(69)->hideFromDetail()->hideWhenUpdating()->hideFromIndex(),
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+
+            Boolean::make('Campaign Ready', 'campaign_ready')->withMeta(['extraAttributes' => [
+                'readonly' => true
+          ]])->hideWhenUpdating()->canSee(function ($request) {
+            return $request->user()->hasRole('admin');
+        }),
+
+
+        Select::make('Status')
+    ->options([
+        'concept' => 'Concept',
+        'ready' => 'Ready',
+        'dispatched' => 'Dispatched',
+    ])
+    ->displayUsingLabels(),
+
+    Flexible::make('FFMPEG')
+    ->addLayout('Inputs', 'prop_single', [
+        Text::make('File'),
+        Text::make('Name'),
+        Text::make('Entry'),
+        Flexible::make('Overlays')
+        ->addLayout('Headlines', 'headlines', [
+            Text::make('Number'),
+            Text::make('Headline'),
+            Text::make('Subheadline'),
+        ])->addLayout('Image Overlays', 'image_overlays', [
+            Text::make('Image Name'),
+            Number::make('Start'),
+            Number::make('End'),
+        ]),
+    ])->canSee(function ($request) {
+        return $request->user()->hasRole('admin');
+    })->dependsOn(['display'], function ($field, $request, $formData) {
+        $field->hide();
+        //dump("We hear you son");
+        //return $formData['display'] == 'misc';
+    }),
+          
+          
+          
+            HasMany::make('Campaign_Contacts')
+        ];
+    }
+
+        /**
+     * Hydrate the given attribute on the model based on the incoming request.
+     *
+     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
+     * @param  string  $requestAttribute
+     * @param  object  $model
+     * @param  string  $attribute
+     * @return void
+     */
+    
+    public static function indexQuery(NovaRequest $request, $query)
+    {
+        if($request->user()->id != 1) {
+        return $query->where('author_id', $request->user()->id);
         }
     }
 
-
-    public function getYoutubeVAttribute()
+    /**
+     * Get the cards available for the request.
+     *
+     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
+     * @return array
+     */
+    public function cards(NovaRequest $request)
     {
-        if(strpos($this->tiktok_url, 'youtube') !== false) {
-            parse_str(parse_url($this->tiktok_url, PHP_URL_QUERY), $vars);
-            return $vars['v'];
+        return [
+            (new Metrics\Clicks)->onlyOnDetail(),
+        ];
+    }
+
+    /**
+     * Get the filters available for the resource.
+     *
+     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
+     * @return array
+     */
+    public function filters(NovaRequest $request)
+    {
+        return [
+            new Filters\CampaignFilter
+        ];
+    }
+
+    /**
+     * Get the lenses available for the resource.
+     *
+     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
+     * @return array
+     */
+    public function lenses(NovaRequest $request)
+    {
+        return [
+            new campaign_list()
+        ];
+    }
+
+    protected static function fillFields(NovaRequest $request, $model, $fields)
+    {
+        $fillFields = parent::fillFields($request, $model, $fields);
+
+        // first element should be model object
+        $modelObject = $fillFields[0];
+
+        // remove all attributes do not have relevant columns in model table
+
+        return $fillFields;
+    }
+
+    /**
+     * Get the actions available for the resource.
+     *
+     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
+     * @return array
+     */
+    public function actions(NovaRequest $request)
+    {
+        return [
+            new Actions\ShortBurst,
+            new Actions\AttachContacts,
+            new Actions\SendMMS,
+            new Actions\Userea,
+            new Actions\SendPortalSync,
+            new Actions\TestAction,
+            new Actions\TakeScreenshot,
+            new Actions\PropItUp
+        ];
+    }
+
+    protected function showWhenDisplayIs($key, $field, $formData) {
+        if($formData->display) {
+            $display = json_decode($formData->display);
+            
+            if(isset($display->{$key}) && ($display->{$key} === true)) {
+                $field->show();
+            } else {
+                $field->hide();
+            }
+        } else {
+            $field->hide();
         }
-        return false;
     }
-
-    public function getPropsCollection(): Collection
-    {
-         return new Collection(
-              isset($this->attributes['video_props']) 
-              ? json_decode($this->attributes['video_props'], false) 
-              : []
-         );
-    }
-    
-    public function setPropsCollection(Collection $products): void
-    {
-         $this->attributes['video_props'] = $products->toJson();
-    }
-
-    
-      
-
 }
