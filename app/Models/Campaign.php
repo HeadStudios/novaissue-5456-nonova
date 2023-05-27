@@ -26,6 +26,8 @@ use App\Nova\Metrics\Clicks;
 use Laravel\Nova\Fields\Number;
 use Waynestate\Nova\TextCopy\TextCopy;
 use Oneduo\NovaFileManager\FileManager;
+use Laravel\Nova\Panel;
+
 
 
 use App\Nova\Lenses\campaign_list;
@@ -130,6 +132,7 @@ class Campaign extends Resource
             Image::make('Video Thumbnail', 'video_thumbnail')->disk('s3')->hideFromIndex()->canSee(function ($request) {
                 return $request->user()->hasRole('admin');
             }),
+            
             Image::make('Partner', 'partner')->disk('s3')->hideFromIndex(),
             FileManager::make(__('Nova File'), 'nova_file')->canSee(function ($request) {
                 return $request->user()->hasRole('admin');
@@ -168,22 +171,15 @@ class Campaign extends Resource
                 
                 
 
-            DependablePanel::make('Landing Page Fields', [
+            new Panel('Landing Page Fields', $this->landingFields()),
+            /*DependablePanel::make('Landing Page Fields', [
                 
                 
-                Text::make('Headline', 'headline'),
-                Text::make('Subheadline', 'subheadline'),
                 
-                Text::make('Tik Tok URL', 'tiktok_url')->hideFromIndex(),
-                Heading::make('Add the merge <b>{!offer}</b> to add offer to be modified later')->asHtml(),
-                Markdown::make('Copy', 'copy')->hideFromIndex()->withFiles('s3'),
-                Boolean::make('Template')->sortable()->canSee(function ($request) {
-                    return $request->user()->hasRole('admin');
-                }),
                 
                 ])->separatePanel(true)->dependsOn(['display'], function ($field, $request, $formData) {
                     $this->showWhenDisplayIs('landing', $field, $formData);
-                }),
+                }),*/
 
                
             
@@ -281,7 +277,42 @@ class Campaign extends Resource
     ])
     ->displayUsingLabels(),
 
-    Flexible::make('FFMPEG')
+    
+          
+          
+          
+            HasMany::make('Campaign_Contacts')
+        ];
+    }
+
+    protected function landingFields() {
+
+        return [
+            Text::make('Headline', 'headline')->dependsOn(['display'], function ($field, $request, $formData) {
+                $this->showWhenDisplayIs('landing', $field, $formData);
+            }),
+                Text::make('Subheadline', 'subheadline')->dependsOn(['display'], function ($field, $request, $formData) {
+                    $this->showWhenDisplayIs('landing', $field, $formData);
+                }),
+                
+                Text::make('Tik Tok URL', 'tiktok_url')->hideFromIndex()->dependsOn(['display'], function ($field, $request, $formData) {
+                    $this->showWhenDisplayIs('landing', $field, $formData);
+                }),
+                Heading::make('Add the merge <b>{!offer}</b> to add offer to be modified later')->asHtml()->dependsOn(['display'], function ($field, $request, $formData) {
+                    $this->showWhenDisplayIs('landing', $field, $formData);
+                }),
+
+                Markdown::make('Copy', 'copy')->hideFromIndex()->withFiles('s3')->dependsOn(['display'], function ($field, $request, $formData) {
+                    $this->showWhenDisplayIs('landing', $field, $formData);
+                }),
+                
+                Boolean::make('Template')->sortable()->canSee(function ($request) {
+                    return $request->user()->hasRole('admin');
+                })->dependsOn(['display'], function ($field, $request, $formData) {
+                    $this->showWhenDisplayIs('landing', $field, $formData);
+                }),
+
+                Flexible::make('FFMPEG')
     ->addLayout('Inputs', 'prop_single', [
         Text::make('File'),
         Text::make('Name'),
@@ -299,15 +330,10 @@ class Campaign extends Resource
     ])->canSee(function ($request) {
         return $request->user()->hasRole('admin');
     })->dependsOn(['display'], function ($field, $request, $formData) {
-        $field->hide();
-        //dump("We hear you son");
-        //return $formData['display'] == 'misc';
+        $this->showWhenDisplayIs('landing', $field, $formData);
     }),
-          
-          
-          
-            HasMany::make('Campaign_Contacts')
-        ];
+            ];
+
     }
 
         /**
